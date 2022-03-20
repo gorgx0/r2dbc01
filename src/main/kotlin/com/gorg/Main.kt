@@ -1,10 +1,9 @@
 package com.gorg
 
-import io.r2dbc.spi.Connection
-import io.r2dbc.spi.ConnectionFactories
+import io.r2dbc.proxy.ProxyConnectionFactory
+import io.r2dbc.proxy.support.QueryExecutionInfoFormatter
+import io.r2dbc.spi.*
 import io.r2dbc.spi.ConnectionFactoryOptions.*
-import io.r2dbc.spi.Result
-import io.r2dbc.spi.Row
 import org.reactivestreams.Publisher
 import reactor.core.publisher.Mono
 import reactor.kotlin.core.publisher.toFlux
@@ -13,7 +12,7 @@ import reactor.kotlin.core.publisher.toMono
 private const val SELECT_SQL = "select * from table01"
 
 fun close(con: Connection?): Any {
-    return con.toMono().subscribe { close(con) }
+    return con.toMono().subscribe { con?.close() }
 }
 
 fun main() {
@@ -39,13 +38,6 @@ fun main() {
     block?.toFlux()?.subscribe {
         println(it)
     }
-
-//    val rowFlux: Flux<TableRow> = flatMap.block()
-//    rowFlux.subscribe {
-//        println(">>>> ${}")
-//    }
-//    println("bl_1" + rowFlux)
-
 }
 
 private fun tableRowMapper(r: Row): TableRow {
@@ -59,7 +51,8 @@ private fun tableRowMapper(r: Row): TableRow {
 
 private fun connectionMono(): Publisher<out Connection> {
     val connectionFactoryOptions = builder()
-        .option(DRIVER, "postgresql")
+        .option(DRIVER, "proxy")
+        .option(PROTOCOL, "postgresql")
         .option(HOST, "localhost")
         .option(PORT, 5432)
         .option(USER, "r2dbc")
@@ -67,5 +60,15 @@ private fun connectionMono(): Publisher<out Connection> {
         .option(DATABASE, "r2dbc")
         .build()
 
-    return ConnectionFactories.get(connectionFactoryOptions).create()
+    val connectionFactory = ConnectionFactories.get(connectionFactoryOptions)
+
+    val executionInfoFormatter = QueryExecutionInfoFormatter.showAll()
+
+    val proxyConnectionFactory: ConnectionFactory = ProxyConnectionFactory.builder(connectionFactory)
+        .onAfterQuery { execInfo ->
+            println(executionInfoFormatter.format(execInfo))
+        }
+        .build()
+
+    return proxyConnectionFactory.create()
 }
