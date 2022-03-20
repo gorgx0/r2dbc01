@@ -28,6 +28,8 @@ dependencies {
     implementation("org.postgresql:r2dbc-postgresql:0.9.1.RELEASE")
     implementation("io.projectreactor:reactor-core")
     implementation("io.projectreactor:reactor-tools")
+    implementation("org.hibernate:hibernate-core:5.6.5.Final")
+    implementation("io.projectreactor.kotlin:reactor-kotlin-extensions")
 }
 
 
