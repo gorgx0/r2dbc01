@@ -4,37 +4,60 @@ import io.r2dbc.spi.Connection
 import io.r2dbc.spi.ConnectionFactories
 import io.r2dbc.spi.ConnectionFactoryOptions.*
 import io.r2dbc.spi.Result
+import io.r2dbc.spi.Row
 import org.reactivestreams.Publisher
-import reactor.core.publisher.Flux
 import reactor.core.publisher.Mono
 import reactor.kotlin.core.publisher.toFlux
 import reactor.kotlin.core.publisher.toMono
-import java.time.Duration
 
 private const val SELECT_SQL = "select * from table01"
 
-fun main() {
-    val res = connectionMono().map { con ->
-        withConnection(con).toFlux()
-    }
-
-    val block: Flux<out Result> = res.block()!!
-    block.subscribe { it: Result ->
-        tableRowMapper(it).toFlux().subscribe { tr: TableRow -> println(tr) }
-    }.toMono().block(Duration.ofSeconds(10))
+fun close(con: Connection?): Any {
+    return con.toMono().subscribe { close(con) }
 }
 
-private fun tableRowMapper(r: Result) =
-    r.map { row, _ ->
-        println("Check ***")
-        TableRow(
-            row.get("id", Integer::class.java),
-            row.get("attr01", String::class.java),
-            row.get("attr02", String::class.java)
-        )
+fun main() {
+
+    val monoResult: Mono<Result> = connectionMono().toMono().flatMap {
+        con ->
+           Mono.from(
+               con.createStatement(SELECT_SQL).execute())
+               .doFinally {
+                   close(con)
+               }
     }
 
-private fun connectionMono(): Mono<Connection> {
+    val disposable: Mono<Publisher<TableRow>> = monoResult.map { result ->
+        result.map { r, _ ->
+            tableRowMapper(r)
+        }
+    }
+
+//    val flatMap: Mono<Flux<TableRow>> = result.map { it: Result -> Flux.from(it.map { r, _ -> tableRowMapper(r) }) }
+    println(":::START:::")
+    val block: Publisher<TableRow>? = disposable.block()
+    block?.toFlux()?.subscribe {
+        println(it)
+    }
+
+//    val rowFlux: Flux<TableRow> = flatMap.block()
+//    rowFlux.subscribe {
+//        println(">>>> ${}")
+//    }
+//    println("bl_1" + rowFlux)
+
+}
+
+private fun tableRowMapper(r: Row): TableRow {
+    println("Check ***")
+    return TableRow(
+        r.get("id", Integer::class.java),
+        r.get("attr01", String::class.java),
+        r.get("attr02", String::class.java)
+    )
+}
+
+private fun connectionMono(): Publisher<out Connection> {
     val connectionFactoryOptions = builder()
         .option(DRIVER, "postgresql")
         .option(HOST, "localhost")
@@ -44,7 +67,5 @@ private fun connectionMono(): Mono<Connection> {
         .option(DATABASE, "r2dbc")
         .build()
 
-    return Mono.from(ConnectionFactories.get(connectionFactoryOptions).create())
+    return ConnectionFactories.get(connectionFactoryOptions).create()
 }
-
-private fun withConnection(con: Connection): Publisher<out Result> = con.createStatement(SELECT_SQL).execute()
